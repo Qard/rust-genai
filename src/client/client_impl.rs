@@ -83,7 +83,7 @@ impl Client {
 			tracing::info_span!(
 				"gen_ai.chat",
 				otel.kind = "client",
-				gen_ai.system = %system,
+				gen_ai.provider.name = %system,
 				gen_ai.operation.name = "chat",
 				gen_ai.request.model = %model_name,
 				gen_ai.request.temperature = ?temperature,
@@ -92,9 +92,8 @@ impl Client {
 				gen_ai.response.id = tracing::field::Empty,
 				gen_ai.response.model = tracing::field::Empty,
 				gen_ai.response.finish_reasons = tracing::field::Empty,
-				gen_ai.usage.prompt_tokens = tracing::field::Empty,
-				gen_ai.usage.completion_tokens = tracing::field::Empty,
-				gen_ai.usage.total_tokens = tracing::field::Empty,
+				gen_ai.usage.input_tokens = tracing::field::Empty,
+				gen_ai.usage.output_tokens = tracing::field::Empty,
 			)
 			.entered()
 		};
@@ -153,14 +152,12 @@ impl Client {
 
 					let usage = &chat_res.usage;
 					if let Some(prompt_tokens) = usage.prompt_tokens {
-						span.record("gen_ai.usage.prompt_tokens", prompt_tokens);
+						span.record("gen_ai.usage.input_tokens", prompt_tokens);
 					}
 					if let Some(completion_tokens) = usage.completion_tokens {
-						span.record("gen_ai.usage.completion_tokens", completion_tokens);
+						span.record("gen_ai.usage.output_tokens", completion_tokens);
 					}
-					if let Some(total_tokens) = usage.total_tokens {
-						span.record("gen_ai.usage.total_tokens", total_tokens);
-					}
+					// Note: total_tokens is not in the OpenTelemetry spec
 
 					// Log response content
 					let content_text = chat_res.first_text().unwrap_or("");
@@ -220,7 +217,7 @@ impl Client {
 			tracing::info_span!(
 				"gen_ai.chat.stream",
 				otel.kind = "client",
-				gen_ai.system = %system,
+				gen_ai.provider.name = %system,
 				gen_ai.operation.name = "chat",
 				gen_ai.request.model = %model_name,
 				gen_ai.request.temperature = ?temperature,
