@@ -70,6 +70,44 @@ impl Client {
 
 		let target = self.config().resolve_model_spec(model.into()).await?;
 		let model = target.model.clone();
+
+		// Create instrumentation span
+		#[cfg(feature = "instrumentation")]
+		let _span = {
+			let system = format!("{}", model.adapter_kind).to_lowercase();
+			let model_name = format!("{}", model.model_name);
+			let temperature = options.and_then(|o| o.temperature);
+			let max_tokens = options.and_then(|o| o.max_tokens);
+			let top_p = options.and_then(|o| o.top_p);
+
+			tracing::info_span!(
+				"gen_ai.chat",
+				otel.kind = "client",
+				gen_ai.system = %system,
+				gen_ai.operation.name = "chat",
+				gen_ai.request.model = %model_name,
+				gen_ai.request.temperature = ?temperature,
+				gen_ai.request.max_tokens = ?max_tokens,
+				gen_ai.request.top_p = ?top_p,
+				gen_ai.response.id = tracing::field::Empty,
+				gen_ai.response.model = tracing::field::Empty,
+				gen_ai.response.finish_reasons = tracing::field::Empty,
+				gen_ai.usage.prompt_tokens = tracing::field::Empty,
+				gen_ai.usage.completion_tokens = tracing::field::Empty,
+				gen_ai.usage.total_tokens = tracing::field::Empty,
+			)
+			.entered()
+		};
+
+		// Log request messages
+		#[cfg(feature = "instrumentation")]
+		{
+			tracing::info!(
+				target: "gen_ai.content.prompt",
+				messages = ?chat_req.messages,
+				"chat request"
+			);
+		}
 		let auth_data = target.auth.clone();
 
 		let WebRequestData {
@@ -106,6 +144,33 @@ impl Client {
 		match AdapterDispatcher::to_chat_response(model.clone(), web_res, options_set) {
 			Ok(mut chat_res) => {
 				chat_res.captured_raw_body = captured_raw_body;
+
+				// Record response fields
+				#[cfg(feature = "instrumentation")]
+				{
+					let span = tracing::Span::current();
+					span.record("gen_ai.response.model", format!("{}", chat_res.provider_model_iden.model_name).as_str());
+
+					let usage = &chat_res.usage;
+					if let Some(prompt_tokens) = usage.prompt_tokens {
+						span.record("gen_ai.usage.prompt_tokens", prompt_tokens);
+					}
+					if let Some(completion_tokens) = usage.completion_tokens {
+						span.record("gen_ai.usage.completion_tokens", completion_tokens);
+					}
+					if let Some(total_tokens) = usage.total_tokens {
+						span.record("gen_ai.usage.total_tokens", total_tokens);
+					}
+
+					// Log response content
+					let content_text = chat_res.first_text().unwrap_or("");
+					tracing::info!(
+						target: "gen_ai.content.completion",
+						content = content_text,
+						"chat response"
+					);
+				}
+
 				Ok(chat_res)
 			}
 			Err(err) => {
@@ -142,6 +207,38 @@ impl Client {
 		let target = self.config().resolve_model_spec(model.into()).await?;
 		let model = target.model.clone();
 		let auth_data = target.auth.clone();
+
+		// Create instrumentation span for streaming
+		#[cfg(feature = "instrumentation")]
+		let _span = {
+			let system = format!("{}", model.adapter_kind).to_lowercase();
+			let model_name = format!("{}", model.model_name);
+			let temperature = options.and_then(|o| o.temperature);
+			let max_tokens = options.and_then(|o| o.max_tokens);
+			let top_p = options.and_then(|o| o.top_p);
+
+			tracing::info_span!(
+				"gen_ai.chat.stream",
+				otel.kind = "client",
+				gen_ai.system = %system,
+				gen_ai.operation.name = "chat",
+				gen_ai.request.model = %model_name,
+				gen_ai.request.temperature = ?temperature,
+				gen_ai.request.max_tokens = ?max_tokens,
+				gen_ai.request.top_p = ?top_p,
+			)
+			.entered()
+		};
+
+		// Log request messages
+		#[cfg(feature = "instrumentation")]
+		{
+			tracing::info!(
+				target: "gen_ai.content.prompt",
+				messages = ?chat_req.messages,
+				"chat stream request"
+			);
+		}
 
 		let WebRequestData {
 			mut url,
